@@ -1,0 +1,125 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+#box provision. Using the dummy box, then referencing RHEL stock AMI.  
+#hostmanager sets hosts file for later communication between web/db. 
+Vagrant.configure("2") do |config|
+config.vm.box = "dummy"
+config.hostmanager.enabled = true
+config.hostmanager.manage_host = true
+config.hostmanager.ignore_private_ip = false
+config.hostmanager.include_offline = false 
+config.hostmanager.ip_resolver = proc do |machine|
+  result = ""
+  machine.communicate.execute("ifconfig eth0") do |type, data|
+    result << data if type == :stdout
+  end
+  (ip = /inet addr:(\d+\.\d+\.\d+\.\d+)/.match(result)) && ip[1]
+end
+
+#provision the webserver in AWS - rewrite sudoers for rsync
+ config.vm.define :wpweb1 do |wpweb1_config|
+    wpweb1_config.vm.provider :aws do |aws, override|
+#    aws.ami = "ami-1ecae776" ec2-ami
+#     aws.ami = "ami-3ecd1e57" centos
+    config.ssh.pty= true
+    aws.ami = "ami-b18c62da"
+    aws.access_key_id = "XXXXXXXXXXXXXXX"
+    aws.secret_access_key = "XXXXXXXXXXXX"
+    aws.keypair_name = "XXXXXX"
+    aws.instance_type = "t2.micro"
+    aws.subnet_id = "subnet-XXXXX"
+    aws.security_groups = "sg-XXXXX"       
+    aws.associate_public_ip = "true"
+    aws.tags = {
+        Name: 'Wordpress Web Server 1'
+      }
+    aws.user_data = "#!/bin/bash\nsed -i -e 's/^Defaults.*requiretty/# Defaults requiretty/g' /etc/sudoers"
+    override.ssh.username = "ec2-user"
+    override.ssh.private_key_path = "/path/to/key.pem"
+
+#provision the infrastructure and run yum. 
+
+wpweb1_config.vm.provision "shell", :inline => <<-SHELL
+#	  hostnamectl set-hostname example.domain
+          yum -y update
+          yum -y install httpd php puppet
+        SHELL
+
+      wpweb1_config.vm.provision :puppet do |puppet|
+        puppet.manifests_path = 'puppet/manifests'
+        puppet.manifest_file = 'web1.pp'
+        puppet.module_path = 'puppet/modules'
+      end
+      end 
+      end
+
+#provision the dbserver, as above, so below.
+
+ config.vm.define :wpdb1 do |wpdb1_config|
+    wpdb1_config.vm.provider :aws do |aws, override|
+     aws.ami = "ami-b18c62da"
+     config.ssh.pty= true
+    aws.access_key_id = "XXXXXXXXXXXXXXXXXX"
+    aws.secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXX"
+    aws.keypair_name = "XXXXXXX"
+    aws.instance_type = "t2.micro"
+    aws.subnet_id = "subnet-XXXXXX"
+    aws.security_groups = "sg-XXXXX"
+    aws.associate_public_ip = "true"
+    aws.tags = {
+        Name: 'Wordpress DB Server 1'
+      }
+    aws.user_data = "#!/bin/bash\nsed -i -e 's/^Defaults.*requiretty/# Defaults requiretty/g' /etc/sudoers"
+    override.ssh.username = "ec2-user"
+    override.ssh.private_key_path = "/Users/mhoward/melawskey2015.pem"
+
+wpdb1_config.vm.provision "shell", :inline => <<-SHELL
+#          hostnamectl set-hostname db.example.com
+          yum -y update
+          yum -y install mysql-server puppet
+        SHELL
+
+      wpdb1_config.vm.provision :puppet do |puppet|
+        puppet.manifests_path = 'puppet/manifests'
+        puppet.manifest_file = 'db.pp'
+        puppet.module_path = 'puppet/modules'
+      end
+      end
+      end
+
+#provision the puppetmaster --OPTIONAL -- in my demo i have used "standalone" using the Vagrant puppet provisioner above. If you so prefer, you may instead provision a puppetmaster, in which case the modues must me installed there. In my demo, i have the modules installed locally. Also no puppet files for a puppetmaster are included. 
+#
+# config.vm.define :pm do |pm_config|
+#    pm_config.vm.provider :aws do |aws, override|
+#    aws.access_key_id = "XXXXXXXXXXXXXXXXXXXXXXXXXXX"
+#    aws.secret_access_key = "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+#    aws.keypair_name = "XXXXXXXXXXX"
+#    aws.instance_type = "t2.micro"
+#    aws.subnet_id = "subnet-XXXXXX"
+#    aws.security_groups = "sg-XXXXXX"
+#    aws.associate_public_ip = "true"
+#    aws.tags = {
+#        Name: 'PuppetMaster'
+#      }
+#    override.ssh.username = "root"
+#    override.ssh.private_key_path = "/path.to/key.pem"
+#     aws.user_data = "#!/bin/bash\nsed -i -e 's/^Defaults.*requiretty/# Defaults requiretty/g'# /etc/sudoers"
+#pm_config.vm.provision "shell", :inline => <<-SHELL
+#          hostnamectl set-hostname puppetmaster.msadmn.co.uk
+#          yum -y update
+#          yum -y install facter hiera rubygems
+#	  puppet module install hunner-wordpress
+#       SHELL
+#
+#      pm_config.vm.provision :puppet do |puppet|
+#        puppet.manifests_path = 'puppet/manifests'
+#        puppet.manifest_file = 'default.pp'
+#        puppet.module_path = 'puppet/modules'
+#      end
+#      end
+#      end
+#
+#
+#
+end
